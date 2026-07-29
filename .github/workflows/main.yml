@@ -60,17 +60,39 @@ jobs:
               var body: some View {
                   VStack(spacing: 30) {
                       Text("Yüzen Teleprompter").font(.largeTitle).bold()
-                      Text("Alta aldığında metin yüzecek!").padding()
-                      Button("PiP Başlat") { pipManager.startPiP() }
-                          .padding().background(Color.blue).foregroundColor(.white).cornerRadius(10)
+                      Text("PiP animasyonu için aşağıdaki kutu şarttır. Alta aldığında metin yüzecek!").multilineTextAlignment(.center).padding()
+                      
+                      // İŞTE ÇÖZÜM BURADA: PiP'in küçülme animasyonu için ekranda GERÇEK bir görünüm olması şart
+                      PiPSourceView(pipManager: pipManager)
+                          .frame(width: 200, height: 200)
+                          .background(Color.black.opacity(0.1))
+                          .cornerRadius(15)
+                      
+                      Button("PiP Başlat (Yüzen Ekran)") { 
+                          pipManager.startPiP() 
+                      }
+                      .padding().background(Color.blue).foregroundColor(.white).cornerRadius(10)
                   }
-                  .onAppear { pipManager.setupPiP() }
               }
+          }
+          
+          struct PiPSourceView: UIViewRepresentable {
+              @ObservedObject var pipManager: PiPManager
+              func makeUIView(context: Context) -> UIView {
+                  let view = UIView()
+                  // Görünüm ekrana yerleştiğinde PiP motoruna haber veriyoruz
+                  DispatchQueue.main.async { self.pipManager.setupPiP(sourceView: view) }
+                  return view
+              }
+              func updateUIView(_ uiView: UIView, context: Context) {}
           }
           
           class PiPManager: NSObject, ObservableObject {
               var pipController: AVPictureInPictureController?
-              func setupPiP() {
+              var textView: UITextView?
+              var scrollTimer: Timer?
+              
+              func setupPiP(sourceView: UIView) {
                   guard AVPictureInPictureController.isPictureInPictureSupported() else { return }
                   let audioSession = AVAudioSession.sharedInstance()
                   try? audioSession.setCategory(.playback, mode: .moviePlayback, options: .mixWithOthers)
@@ -78,19 +100,48 @@ jobs:
                   
                   let pipVC = AVPictureInPictureVideoCallViewController()
                   pipVC.view.backgroundColor = .black
-                  let textView = UITextView(frame: CGRect(x: 10, y: 10, width: 300, height: 400))
-                  textView.text = "İşte iPhone 17 Pro Max orijinal kamerasıyla okuyacağın metin burada akacak!\n\nGöz temasını kaybetme ve harika bir çekim yap."
-                  textView.textColor = .white
-                  textView.backgroundColor = .black
-                  textView.font = UIFont.systemFont(ofSize: 22)
-                  textView.isEditable = false
-                  pipVC.view.addSubview(textView)
                   
-                  let source = AVPictureInPictureController.ContentSource(activeVideoCallSourceView: UIView(), contentViewController: pipVC)
+                  let tv = UITextView()
+                  tv.text = "İşte iPhone 17 Pro Max orijinal kamerasıyla okuyacağın metin burada akacak!\n\nŞimdi cihazın ana ekranına dön, kameranı aç.\n\nBu metin sen okudukça otomatik olarak yukarı kayacak.\n\nGöz temasını hiç kaybetmeden, en yüksek kalitede, mükemmel bir çekim yapabilirsin!\n\n(Metin Sonu)"
+                  tv.textColor = .white
+                  tv.backgroundColor = .black
+                  tv.font = UIFont.systemFont(ofSize: 22, weight: .bold)
+                  tv.isEditable = false
+                  tv.showsVerticalScrollIndicator = false
+                  pipVC.view.addSubview(tv)
+                  
+                  // Metni ekrana tam oturtma ayarları
+                  tv.translatesAutoresizingMaskIntoConstraints = false
+                  NSLayoutConstraint.activate([
+                      tv.topAnchor.constraint(equalTo: pipVC.view.topAnchor, constant: 15),
+                      tv.bottomAnchor.constraint(equalTo: pipVC.view.bottomAnchor, constant: -15),
+                      tv.leadingAnchor.constraint(equalTo: pipVC.view.leadingAnchor, constant: 15),
+                      tv.trailingAnchor.constraint(equalTo: pipVC.view.trailingAnchor, constant: -15)
+                  ])
+                  
+                  self.textView = tv
+                  let source = AVPictureInPictureController.ContentSource(activeVideoCallSourceView: sourceView, contentViewController: pipVC)
                   pipController = AVPictureInPictureController(contentSource: source)
                   pipController?.canStartPictureInPictureAutomaticallyFromInline = true
               }
-              func startPiP() { pipController?.startPictureInPicture() }
+              
+              func startPiP() { 
+                  pipController?.startPictureInPicture() 
+                  startScrolling()
+              }
+              
+              func startScrolling() {
+                  scrollTimer?.invalidate()
+                  // Metni saniyede bir milim yukarı kaydıran motor
+                  scrollTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+                      guard let tv = self?.textView else { return }
+                      var offset = tv.contentOffset
+                      offset.y += 0.8 // Kaydırma hızını buradan ayarlayabilirsin
+                      if offset.y < (tv.contentSize.height - tv.bounds.height) {
+                          tv.setContentOffset(offset, animated: false)
+                      }
+                  }
+              }
           }
           EOF
 
